@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+motor
+python-jose
+pydantic
+pydantic-settings
+prometheus-fastapi-instrumentator
+pytest
+flake8
