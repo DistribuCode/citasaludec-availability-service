@@ -1,4 +1,4 @@
-name: Build and Push to Docker Hub - availability-service
+name: Build and Deploy - availability-service
 
 on:
   push:
@@ -28,3 +28,49 @@ jobs:
           context: .
           push: true
           tags: jeffri1997/availability-service:qa
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔑 Create EC2 SSH key
+        run: |
+          echo "${{ secrets.EC2_KEY }}" > auth-key.pem
+          chmod 600 auth-key.pem
+
+      - name: 🚀 Deploy to EC2 via SSH
+        run: |
+          ssh -o StrictHostKeyChecking=no -i auth-key.pem ec2-user@${{ secrets.EC2_HOST }} << 'EOF'
+            # Crear red si no existe
+            docker network inspect my_network >/dev/null 2>&1 || docker network create my_network
+
+            # Iniciar base de datos availability-db
+            docker stop availability-db || true
+            docker rm availability-db || true
+            docker volume create availability_data || true
+            docker run -d \
+              --name availability-db \
+              --network my_network \
+              -v availability_data:/data/db \
+              mongo:6.0
+
+            # Esperar a que esté lista
+            sleep 15
+
+            # Iniciar availability-service
+            docker pull jeffri1997/availability-service:qa
+            docker stop availability-service || true
+            docker rm availability-service || true
+            docker run -d \
+              --name availability-service \
+              --network my_network \
+              -p 4010:4010 \
+              -e PORT=4010 \
+              -e MONGO_URI=mongodb://availability-db:27017/availability \
+              -e JWT_SECRET=supersecretkey \
+              jeffri1997/availability-service:qa
+          EOF
